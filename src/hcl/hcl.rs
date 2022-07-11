@@ -1,11 +1,11 @@
-use super::Hcl;
+
 use super::Db;
 use super::Error;
+use super::Hcl;
 
-use std::path;
-use std::fmt;
 use std::fs;
 use std::io;
+use std::path;
 
 impl Hcl {
 	pub fn new() -> Hcl {
@@ -28,7 +28,7 @@ impl Hcl {
 		};
 
 		let res = match res {
-			Ok(file) => Ok(Db::new(file)),
+			Ok(file) => Db::new(file),
 			Err(error) => Err(error)
 		};
 

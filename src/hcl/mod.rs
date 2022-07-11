@@ -1,5 +1,6 @@
 mod db;
 mod error;
+mod file_view;
 mod hcl;
 mod value;
 
@@ -7,7 +8,9 @@ mod value;
 pub struct Hcl;
 
 #[derive(Debug)]
-pub struct Db;
+pub struct Db {
+	db: db::Impl
+}
 
 #[derive(Debug)]
 pub struct Error {
