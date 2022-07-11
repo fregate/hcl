@@ -2,8 +2,10 @@ use super::Db;
 use super::Error;
 use crate::hcl::value::Value;
 
+use std::fs;
+
 impl Db {
-	pub fn new() -> Db {
+	pub fn new(file: fs::File) -> Db {
 		Db
 	}
 
