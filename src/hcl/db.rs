@@ -1,13 +1,13 @@
 use self::version::Version;
 
-use super::Db;
+use super::{Db, file_view};
 use super::{Error, ErrorKind};
 use crate::hcl::value::Value;
 use crate::hcl::file_view::ViewValue;
 
 use std::fs;
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::io::Write;
 
 mod version;
@@ -39,19 +39,33 @@ impl Db {
 			// migration
 		}
 
+		// File format.
+		// key-value pair format:
+		// key_size(u32);key_string([key_size]);value_type(u8);value(depends on value_type)
+		// value sizes:
+		// nil(0): 0
+		// int(1): 8 (i64)
+		// real(2): 8 (f64)
+		// bool(3): 1 (u8)
+		// string(4): size (4), string (size)
+		// value(5): key-value (?) - parse recursive
+		// file structure:
+		// version(u16);key-pairs(?);eof
+		let mut map = HashMap::new();
 		size = size - 2;
 		while size > 0 {
 			// todo: read 4k block, parse 4k block
 			// read https://codecapsule.com/2014/10/18/implementing-a-key-value-store-part-7-optimizing-data-structures-for-ssds/
-			let mut buff = [0u8; 1];
-			file.read_exact(&mut buff)?;
-			size = size - 1;
+			let key = parse_key(&mut file, &mut size)?;
+			let value = parse_value(&mut file, &mut size)?;
+
+			map.insert(key, value);
 		}
 
 		Ok(Db {
 			db: Impl {
 				file,
-				map: HashMap::new(),
+				map,
 			}
 		})
 	}
@@ -73,4 +87,95 @@ impl Db {
 pub struct Impl {
 	file: fs::File,
 	map: HashMap<String, ViewValue>,
+}
+
+fn parse_key(file: &mut fs::File, size: &mut u64) -> Result<String, Error> {
+	let mut buff = [0u8; 4];
+	file.read_exact(&mut buff)?;
+	*size = *size - 4;
+
+	let key_size = u32::from_le_bytes(buff);
+	let mut buff = vec![0; key_size as usize];
+	file.read_exact(&mut buff)?;
+
+	let string = String::from_utf8(buff.to_vec())?;
+	*size = *size - key_size as u64;
+	Ok(string)
+}
+
+fn parse_value(file: &mut fs::File, size: &mut u64) -> Result<ViewValue, Error> {
+	let mut buff = [0u8; 1];
+	file.read_exact(&mut buff)?;
+	*size = *size - 1;
+
+	let val = match buff[0] {
+		0 => ViewValue::Full(Value::Nil),
+		1 => {
+			let val_int = parse_value_int(file)?;
+			*size = *size - 8;
+			ViewValue::Full(val_int)
+		},
+		2 => {
+			let val_real = parse_value_real(file)?;
+			*size = *size - 8;
+			ViewValue::Full(val_real)
+		},
+		3 => {
+			let val_bool = parse_value_bool(file)?;
+			*size = *size - 1;
+			ViewValue::Full(val_bool)
+		},
+		4 => parse_value_words(file, size)?,
+		5 => parse_value_recursive(file, size)?,
+		_ => ViewValue::Full(Value::Nil),
+	};
+
+	Ok(val)
+}
+
+fn parse_value_int(file: &mut fs::File) -> Result<Value, Error> {
+	let mut buff = [0u8; 8];
+	file.read_exact(&mut buff)?;
+	Ok(Value::Int(i64::from_le_bytes(buff)))
+}
+
+fn parse_value_real(file: &mut fs::File) -> Result<Value, Error> {
+	let mut buff = [0u8; 8];
+	file.read_exact(&mut buff)?;
+	Ok(Value::Real(f64::from_le_bytes(buff)))
+}
+
+fn parse_value_bool(file: &mut fs::File) -> Result<Value, Error> {
+	let mut buff = [0u8; 1];
+	file.read_exact(&mut buff)?;
+	Ok(Value::Bool(match buff[0] {
+		0 => false,
+		_ => true,
+	}))
+}
+
+fn parse_value_words(file: &mut fs::File, size: &mut u64) -> Result<ViewValue, Error> {
+	let mut buff = [0u8; 4];
+	file.read_exact(&mut buff)?;
+	*size = *size - 4;
+
+	let val_size = u32::from_le_bytes(buff);
+	let val = if val_size > 32 {
+			file.seek(SeekFrom::Current(val_size as i64))?;
+			ViewValue::View(file_view::View{ offset: *size, size: val_size})
+		} else {
+			let mut buff = vec![0; val_size as usize];
+			file.read_exact(&mut buff)?;
+
+			let string = String::from_utf8(buff.to_vec())?;
+			*size = *size - val_size as u64;
+
+			ViewValue::Full(Value::Words(string))
+		};
+
+	Ok(val)
+}
+
+fn parse_value_recursive(file: &mut fs::File, size: &mut u64) -> Result<ViewValue, Error> {
+	Err(Error::new(ErrorKind::Parser, "'parse_value_recursive' not implemented"))
 }

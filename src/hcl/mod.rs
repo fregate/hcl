@@ -16,6 +16,7 @@ pub struct Db {
 pub enum ErrorKind {
 	FileIO,
 	Db,
+	Parser,
 }
 
 #[derive(Debug)]
