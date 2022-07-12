@@ -1,8 +1,9 @@
 #[derive(Debug)]
 pub enum Value {
 	Nil,
-	Int(i128),
+	Int(i64),
 	Real(f64),
 	Bool(bool),
 	Words(String),
+	Val(Box<Value>),
 }

@@ -21,9 +21,9 @@ impl Hcl {
 			Err(error) => match error.kind() {
 				io::ErrorKind::NotFound => match fs::File::create(path) {
 					Ok(file) => Ok(file),
-					Err(error) => Err(Error::new(-1, format!("{}", error).as_ref()))
+					Err(error) => Err(Error::from(error))
 				},
-				_ => Err(Error::new(-1,format!("{}", error).as_ref() ))
+				_ => Err(Error::from(error))
 			}
 		};
 

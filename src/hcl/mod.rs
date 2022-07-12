@@ -13,7 +13,13 @@ pub struct Db {
 }
 
 #[derive(Debug)]
+pub enum ErrorKind {
+	FileIO,
+	Db,
+}
+
+#[derive(Debug)]
 pub struct Error {
-	code: i32,
+	kind: ErrorKind,
 	what: String,
 }

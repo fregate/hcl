@@ -1,13 +1,14 @@
 use self::version::Version;
 
 use super::Db;
-use super::Error;
+use super::{Error, ErrorKind};
 use crate::hcl::value::Value;
-use crate::hcl::file_view::View;
+use crate::hcl::file_view::ViewValue;
 
 use std::fs;
 use std::collections::HashMap;
 use std::io::Read;
+use std::io::Write;
 
 mod version;
 
@@ -15,12 +16,16 @@ impl Db {
 	pub fn new(mut file: fs::File) -> Result<Db, Error> {
 		let mut size = file.metadata()?.len();
 		if size == 0u64 {
-			return Ok(Db {
-				db: Impl {
-					file,
-					map: HashMap::new(),
-				}
-			})
+			let v = Version::current().primitive().to_le_bytes();
+			return match file.write(&v) {
+				Ok(_) => Ok(Db {
+					db: Impl {
+						file,
+						map: HashMap::new(),
+					}
+				}),
+				Err(err) => Err(Error::from(err)),
+			}
 		}
 
 		// read version
@@ -52,20 +57,20 @@ impl Db {
 	}
 
 	pub fn get<'a>(&self, key: &'a str) -> Result<Value, Error> {
-		Err(Error::new(-2, "'get' not implemented"))
+		Err(Error::new(ErrorKind::Db, "'get' not implemented"))
 	}
 
 	pub fn put<'a>(&self, key: &'a str, value: Value) -> Result<&str, Error> {
-		Err(Error::new(-2, "'put' not implemented"))
+		Err(Error::new(ErrorKind::Db, "'put' not implemented"))
 	}
 
 	pub fn delete<'a>(&self, key: &'a str) -> Result<(), Error> {
-		Err(Error::new(-2, "'delete' not implemented"))
+		Err(Error::new(ErrorKind::Db, "'delete' not implemented"))
 	}
 }
 
 #[derive(Debug)]
 pub struct Impl {
 	file: fs::File,
-	map: HashMap<String, View>,
+	map: HashMap<String, ViewValue>,
 }
