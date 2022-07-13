@@ -2,7 +2,7 @@ mod db;
 mod error;
 mod file_view;
 mod hcl;
-mod value;
+pub mod value;
 
 #[derive(Debug)]
 pub struct Hcl;

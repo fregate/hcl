@@ -6,27 +6,38 @@ use crate::hcl::value::Value;
 use crate::hcl::file_view::ViewValue;
 
 use std::cell::RefCell;
-use std::fs;
+use std::cmp::Ordering;
+use std::{fs, mem};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::io::Write;
 
 mod version;
 
+const SIGNATURE: &str = "hcldb";
+
 impl Db {
 	pub fn new(mut file: fs::File) -> Result<Db, Error> {
 		let mut size = file.metadata()?.len();
 		if size == 0u64 {
+			file.write(SIGNATURE.as_bytes())?;
 			let v = Version::current().primitive().to_le_bytes();
-			return match file.write(&v) {
-				Ok(_) => Ok(Db {
+			file.write(&v)?;
+
+			return Ok(Db {
 					db: Impl {
 						file: RefCell::new(file),
 						map: HashMap::new(),
-					}
-				}),
-				Err(err) => Err(Error::from(err)),
-			}
+						}
+					});
+		}
+
+		// read signature
+		let mut buff = vec![0; SIGNATURE.len()];
+		file.read_exact(&mut buff)?;
+		let buff = std::str::from_utf8(&buff)?;
+		if Ordering::Equal != SIGNATURE.cmp(buff) {
+			return Err(Error::new(ErrorKind::Parser, "wrong file signature"));
 		}
 
 		// read version
@@ -53,7 +64,7 @@ impl Db {
 		// file structure:
 		// version(u16);key-pairs(?);eof
 		let mut map = HashMap::new();
-		size = size - 2;
+		size = size - (mem::size_of::<Version>() + SIGNATURE.len()) as u64;
 		while size > 0 {
 			// todo: read 4k block, parse 4k block
 			// read https://codecapsule.com/2014/10/18/implementing-a-key-value-store-part-7-optimizing-data-structures-for-ssds/
@@ -93,11 +104,11 @@ pub struct Impl {
 }
 
 fn parse_key(file: &mut fs::File, size: &mut u64) -> Result<String, Error> {
-	let mut buff = [0u8; 4];
+	let mut buff = [0u8; 1];
 	file.read_exact(&mut buff)?;
-	*size = *size - 4;
+	*size = *size - 1;
 
-	let key_size = u32::from_le_bytes(buff);
+	let key_size = u8::from_le_bytes(buff);
 	let mut buff = vec![0; key_size as usize];
 	file.read_exact(&mut buff)?;
 
@@ -107,10 +118,10 @@ fn parse_key(file: &mut fs::File, size: &mut u64) -> Result<String, Error> {
 }
 
 fn put_key(file: &mut fs::File, key: &str) -> Result<(), Error> {
-	if key.len() > u32::max_value() as usize {
+	if key.len() > u8::max_value() as usize {
 		Err(Error::new(ErrorKind::Db, "key value too long"))
 	} else {
-		let size_arr = (key.len() as u32).to_le_bytes();
+		let size_arr = (key.len() as u8).to_le_bytes();
 		file.write(&size_arr)?;
 		file.write(key.as_bytes())?;
 		Ok(())
@@ -155,6 +166,8 @@ fn put_value(file: &mut fs::File, value: Value) -> Result<(), Error> {
 	}
 }
 
+// fn parse_value_nil() {} - no implementation
+
 fn put_value_nil(file: &mut fs::File) -> Result<(), Error> {
 	let buff = [0u8; 1];
 	file.write(&buff)?;
@@ -168,6 +181,8 @@ fn parse_value_int(file: &mut fs::File) -> Result<Value, Error> {
 }
 
 fn put_value_int(file: &mut fs::File, value: i64) -> Result<(), Error> {
+	let buff = 1u8.to_le_bytes();
+	file.write(&buff)?;
 	let buff = value.to_le_bytes();
 	file.write(&buff)?;
 	Ok(())

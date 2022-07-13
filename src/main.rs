@@ -7,6 +7,7 @@ fn main() {
 
     let db = hcl.open(path::Path::new("db.hcl")).unwrap();
     println!("db: {:?}", db);
-    let val = db.get("aaa");
-    println!("val: {:?}", val);
+
+    let x = db.put("key", hcl::value::Value::Nil).unwrap();
+    let y = db.put("key2", hcl::value::Value::Int(-1)).unwrap();
 }

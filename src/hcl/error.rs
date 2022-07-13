@@ -3,6 +3,7 @@ use super::ErrorKind;
 
 use std::io;
 use std::convert::From;
+use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 
 impl Error {
@@ -19,6 +20,12 @@ impl From<io::Error> for Error {
 
 impl From<FromUtf8Error> for Error {
     fn from(err: FromUtf8Error) -> Self {
+        Error { kind: ErrorKind::Parser, what: format!("{}", err) }
+    }
+}
+
+impl From<Utf8Error> for Error {
+    fn from(err: Utf8Error) -> Self {
         Error { kind: ErrorKind::Parser, what: format!("{}", err) }
     }
 }
