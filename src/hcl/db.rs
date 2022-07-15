@@ -5,8 +5,9 @@ use super::{Error, ErrorKind};
 use crate::hcl::value::Value;
 use crate::hcl::file_view::ViewValue;
 
-use std::cell::RefCell;
+use std::cell::{RefCell, RefMut, Ref};
 use std::cmp::Ordering;
+use std::rc::Rc;
 use std::{fs, mem};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -15,21 +16,27 @@ use std::io::Write;
 mod version;
 
 const SIGNATURE: &str = "hcldb";
+const SIGNATURE_TEMP: &str = "hcltb";
+const FILE_MUTABLE_SUFFIX: &str = "mut";
+// const FILE_MERGE_SUFFIX: &str = "merge";
 
 impl Db {
-	pub fn new(mut file: fs::File) -> Result<Db, Error> {
+	pub fn new(path: &str, mut file: fs::File) -> Result<Box<Db>, Error> {
 		let mut size = file.metadata()?.len();
 		if size == 0u64 {
 			file.write(SIGNATURE.as_bytes())?;
 			let v = Version::current().primitive().to_le_bytes();
 			file.write(&v)?;
 
-			return Ok(Db {
+			let file = Rc::new(RefCell::new(file));
+			return Ok(Box::new(Db {
 					db: Impl {
-						file: RefCell::new(file),
-						map: HashMap::new(),
+							mutable_file: Rc::clone(&file),
+							file: Rc::clone(&file),
+							map: HashMap::new(),
+							path: String::from(path),
 						}
-					});
+					}));
 		}
 
 		// read signature
@@ -74,20 +81,25 @@ impl Db {
 			map.insert(key, value);
 		}
 
-		Ok(Db {
+		let mfile = make_temp_file(path)?;
+		let mfile = Rc::new(RefCell::new(mfile));
+
+		Ok(Box::new(Db {
 			db: Impl {
-				file: RefCell::new(file),
+				file: Rc::new(RefCell::new(file)),
 				map,
+				mutable_file: mfile,
+				path: String::from(path),
 			}
-		})
+		}))
 	}
 
 	pub fn get<'a>(&self, key: &'a str) -> Result<Value, Error> {
 		Err(Error::new(ErrorKind::Db, "'get' not implemented"))
 	}
 
-	pub fn put<'a>(&self, key: &'a str, value: Value) -> Result<(), Error> {
-		let mut file = self.db.file.borrow_mut();
+	pub fn put<'a>(&self, key: &'a str, value: &Value) -> Result<(), Error> {
+		let mut file = self.db.mutable();
 		put_key(&mut file, key)?;
 		put_value(&mut file, value)
 	}
@@ -97,10 +109,31 @@ impl Db {
 	}
 }
 
+fn make_temp_file(path: &str) -> Result<fs::File, Error> {
+	let file = fs::File::create(format!("{}-{}", path, FILE_MUTABLE_SUFFIX).as_str())?;
+	Ok(file)
+}
+
 #[derive(Debug)]
 pub struct Impl {
-	file: RefCell<fs::File>,
+	file: Rc<RefCell<fs::File>>,
 	map: HashMap<String, ViewValue>,
+	mutable_file: Rc<RefCell<fs::File>>,
+	path: String,
+}
+
+impl Impl {
+	fn mutable(&self) -> RefMut<fs::File> {
+		self.mutable_file.borrow_mut()
+	}
+
+	fn immutable(&self) -> Ref<fs::File> {
+		self.mutable_file.borrow()
+	}
+
+	fn main(&self) -> Ref<fs::File> {
+		self.file.borrow()
+	}
 }
 
 fn parse_key(file: &mut fs::File, size: &mut u64) -> Result<String, Error> {
@@ -158,10 +191,10 @@ fn parse_value(file: &mut fs::File, size: &mut u64) -> Result<ViewValue, Error> 
 	Ok(val)
 }
 
-fn put_value(file: &mut fs::File, value: Value) -> Result<(), Error> {
+fn put_value(file: &mut fs::File, value: &Value) -> Result<(), Error> {
 	match value {
 		Value::Nil => put_value_nil(file),
-		Value::Int(v) => put_value_int(file, v),
+		Value::Int(v) => put_value_int(file, *v),
 		_ => Err(Error::new(ErrorKind::Parser, format!("unknown value kind: {:?}", value).as_str()))
 	}
 }

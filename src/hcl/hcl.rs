@@ -5,7 +5,6 @@ use super::Hcl;
 
 use std::fs;
 use std::io;
-use std::path;
 
 impl Hcl {
 	pub fn new() -> Hcl {
@@ -13,7 +12,7 @@ impl Hcl {
 	}
 
 	/// Open existing or create new file for store db entries.
-	pub fn open<'a>(&self, path: &'a path::Path) -> Result<Db, Error> {
+	pub fn open<'a>(&self, path: &str) -> Result<Box<Db>, Error> {
 		let res = fs::File::open(path);
 
 		let res = match res {
@@ -28,7 +27,7 @@ impl Hcl {
 		};
 
 		let res = match res {
-			Ok(file) => Db::new(file),
+			Ok(file) => Db::new(path, file),
 			Err(error) => Err(error)
 		};
 
